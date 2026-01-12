@@ -12,41 +12,22 @@ Token guard hook for Claude Code that blocks oversized prompts and offers automa
 
 ## Installation
 
-### 1. Clone the repository
+### 1. Add marketplace and install plugin
 
 ```bash
-git clone https://github.com/patrykjuniszewski/claude-trimmer.git
+claude /marketplace add github:PJuniszewski/juni-tools-marketplace
+claude /plugin install juni-tools:trimmer
+claude /plugin enable trimmer
 ```
 
-### 2. Configure in `~/.claude/settings.json`
-
-```json
-{
-  "env": {
-    "TOKEN_GUARD_PROMPT_LIMIT": "3500",
-    "TOKEN_GUARD_MIN_CHARS_BEFORE_COUNT": "6000"
-  },
-  "hooks": {
-    "UserPromptSubmit": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 /path/to/claude-trimmer/scripts/trimmer_hook.py",
-            "timeout": 30
-          }
-        ]
-      }
-    ]
-  }
-}
-```
-
-### 3. Set API key
+### 2. Set environment variables
 
 ```bash
 export ANTHROPIC_API_KEY="sk-ant-..."
+export TOKEN_GUARD_MODEL="claude-sonnet-4-20250514"
 ```
+
+Add to your shell profile (`~/.bashrc`, `~/.zshrc`) for persistence.
 
 ## Configuration
 
