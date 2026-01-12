@@ -12,15 +12,17 @@ Token guard hook for Claude Code that blocks oversized prompts and offers automa
 
 ## Installation
 
-### 1. Add marketplace and install plugin
+### Via Juni-Tools Marketplace
 
 ```bash
-claude /marketplace add github:PJuniszewski/juni-tools-marketplace
+# Add the marketplace (run /plugin, select "Add Marketplace", enter: PJuniszewski/juni-tools-marketplace)
+
+# Install and enable
 claude /plugin install juni-tools:trimmer
 claude /plugin enable trimmer
 ```
 
-### 2. Set environment variables
+### Set environment variables
 
 ```bash
 export ANTHROPIC_API_KEY="sk-ant-..."
