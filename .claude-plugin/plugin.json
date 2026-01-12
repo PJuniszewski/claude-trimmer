@@ -14,7 +14,7 @@
     {
       "name": "contextguard",
       "description": "Context Guard utilities - preview trimming, diff, forensics mode",
-      "file": "commands/contextguard.md"
+      "source": "commands/contextguard.md"
     }
   ]
 }
