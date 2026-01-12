@@ -739,13 +739,15 @@ def extract_json_from_prompt(prompt: str) -> tuple[Optional[Any], str]:
     Tries these methods in order:
     1. Wrapper markers: ### PAYLOAD START ... ### PAYLOAD END
     2. Fenced JSON: ```json ... ``` or ``` ... ```
-    3. Use json_repair to extract/fix JSON from text
+    3. Raw JSON: entire prompt is valid JSON (starts with { or [)
+    4. Repaired: use json_repair to extract/fix JSON from text
 
     Args:
         prompt: The prompt text to extract from.
 
     Returns:
         Tuple of (extracted_object, method_name).
+        method_name is one of: "wrapper", "fenced", "raw", "repaired", "none"
         Returns (None, "none") if extraction fails.
     """
     import json
@@ -778,7 +780,15 @@ def extract_json_from_prompt(prompt: str) -> tuple[Optional[Any], str]:
             except Exception:
                 pass
 
-    # Method 3: Use json_repair to extract JSON from mixed text
+    # Method 3: Raw JSON - try parsing the entire prompt as valid JSON
+    stripped = prompt.strip()
+    if stripped.startswith(("{", "[")):
+        try:
+            return json.loads(stripped), "raw"
+        except json.JSONDecodeError:
+            pass
+
+    # Method 4: Use json_repair to extract JSON from mixed text
     # It handles: text before/after JSON, broken JSON, missing quotes, etc.
     try:
         result = repair_json(prompt, return_objects=True)

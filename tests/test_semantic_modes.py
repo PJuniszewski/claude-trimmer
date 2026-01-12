@@ -64,43 +64,43 @@ class TestModeDetection:
 # =============================================================================
 
 class TestForensicDetection:
-    """Tests for detect_forensic_question() heuristic."""
+    """Tests for detect_forensic_tripwire() heuristic."""
 
     def test_request_id_pattern(self):
         """Detect 'request id=X' pattern."""
-        from trimmer_hook import detect_forensic_question
+        from trimmer_hook import detect_forensic_tripwire
 
-        is_forensic, match = detect_forensic_question("Why did request id=abc123 fail?")
+        is_forensic, hits = detect_forensic_tripwire("Why did request id=abc123 fail?")
         assert is_forensic
-        assert "request id=abc123" in match.lower()
+        assert any("request id=abc123" in hit.lower() for hit in hits)
 
     def test_user_id_pattern(self):
         """Detect 'user id=X' pattern."""
-        from trimmer_hook import detect_forensic_question
+        from trimmer_hook import detect_forensic_tripwire
 
-        is_forensic, match = detect_forensic_question("Show details for user id: xyz789")
+        is_forensic, hits = detect_forensic_tripwire("Show details for user id: xyz789")
         assert is_forensic
-        assert "user id" in match.lower()
+        assert any("user id" in hit.lower() for hit in hits)
 
     def test_why_did_fail_pattern(self):
         """Detect 'why did X fail' pattern."""
-        from trimmer_hook import detect_forensic_question
+        from trimmer_hook import detect_forensic_tripwire
 
-        is_forensic, match = detect_forensic_question("Why did the payment fail?")
+        is_forensic, hits = detect_forensic_tripwire("Why did the payment fail?")
         assert is_forensic
-        assert "why did" in match.lower()
+        assert any("why did" in hit.lower() for hit in hits)
 
     def test_what_happened_to_pattern(self):
         """Detect 'what happened to X' pattern."""
-        from trimmer_hook import detect_forensic_question
+        from trimmer_hook import detect_forensic_tripwire
 
-        is_forensic, match = detect_forensic_question("What happened to order-12345?")
+        is_forensic, hits = detect_forensic_tripwire("What happened to order-12345?")
         assert is_forensic
-        assert "what happened to" in match.lower()
+        assert any("what happened to" in hit.lower() for hit in hits)
 
     def test_no_forensic_for_global_questions(self):
         """Global questions should NOT trigger forensic detection."""
-        from trimmer_hook import detect_forensic_question
+        from trimmer_hook import detect_forensic_tripwire
 
         global_questions = [
             "What categories exist in this data?",
@@ -111,19 +111,68 @@ class TestForensicDetection:
         ]
 
         for question in global_questions:
-            is_forensic, _ = detect_forensic_question(question)
+            is_forensic, _ = detect_forensic_tripwire(question)
             assert not is_forensic, f"Should not be forensic: {question}"
 
     def test_id_with_long_value(self):
         """Detect ID patterns with 6+ character values."""
-        from trimmer_hook import detect_forensic_question
+        from trimmer_hook import detect_forensic_tripwire
 
-        is_forensic, match = detect_forensic_question("Find id=abcdef123")
+        is_forensic, hits = detect_forensic_tripwire("Find id=abcdef123")
         assert is_forensic
 
-        # Short IDs should not match this pattern
-        is_forensic_short, _ = detect_forensic_question("Find id=abc")
+        # Short IDs should not match the strict id= pattern
+        is_forensic_short, _ = detect_forensic_tripwire("Find id=abc")
         # Note: may still match other patterns like "find X with id"
+
+    def test_uuid_pattern(self):
+        """Detect UUID patterns (almost always forensic)."""
+        from trimmer_hook import detect_forensic_tripwire
+
+        is_forensic, hits = detect_forensic_tripwire(
+            "Check request 550e8400-e29b-41d4-a716-446655440000"
+        )
+        assert is_forensic
+        assert any("550e8400-e29b-41d4-a716-446655440000" in hit for hit in hits)
+
+    def test_what_went_wrong_pattern(self):
+        """Detect 'what went wrong' pattern."""
+        from trimmer_hook import detect_forensic_tripwire
+
+        is_forensic, hits = detect_forensic_tripwire("What went wrong with the deployment?")
+        assert is_forensic
+        assert any("what went wrong" in hit.lower() for hit in hits)
+
+    def test_this_that_record_pattern(self):
+        """Detect 'this/that request/order' patterns."""
+        from trimmer_hook import detect_forensic_tripwire
+
+        is_forensic, hits = detect_forensic_tripwire("Why did this request timeout?")
+        assert is_forensic
+        assert any("this request" in hit.lower() for hit in hits)
+
+        is_forensic2, hits2 = detect_forensic_tripwire("What happened to that order?")
+        assert is_forensic2
+        assert any("that order" in hit2.lower() for hit2 in hits2)
+
+    def test_order_with_identifier_pattern(self):
+        """Detect 'order ABC123' pattern."""
+        from trimmer_hook import detect_forensic_tripwire
+
+        is_forensic, hits = detect_forensic_tripwire("Show details for order ORD-12345")
+        assert is_forensic
+        assert any("order ORD-12345" in hit for hit in hits)
+
+    def test_multiple_hits_returned(self):
+        """Multiple forensic patterns should all be returned."""
+        from trimmer_hook import detect_forensic_tripwire
+
+        # This prompt contains multiple forensic signals
+        is_forensic, hits = detect_forensic_tripwire(
+            "Why did request id=abc123 fail? What went wrong with this transaction?"
+        )
+        assert is_forensic
+        assert len(hits) >= 2, f"Expected multiple hits, got: {hits}"
 
 
 # =============================================================================
@@ -190,7 +239,7 @@ class TestHookBehavior:
         result = run_hook_with_prompt(prompt, large_data)
 
         assert result["blocked"], "Forensic question should block by default"
-        assert "FORENSIC QUESTION DETECTED" in result["stderr"]
+        assert "FORENSIC SIGNALS DETECTED" in result["stderr"]
         assert "Sampling may hide" in result["stderr"]
 
     def test_forensic_question_with_explicit_analysis_allows(self, large_data):
@@ -247,7 +296,7 @@ class TestBehaviorMatrix:
         prompt = "Why did request id=req123 fail?"
         result = run_hook_with_prompt(prompt, large_data)
         assert result["blocked"]
-        assert "FORENSIC QUESTION DETECTED" in result["stderr"]
+        assert "FORENSIC SIGNALS DETECTED" in result["stderr"]
 
     def test_matrix_forensic_forensics_blocks(self, large_data):
         """Forensic question + forensics mode = BLOCK (too large)"""

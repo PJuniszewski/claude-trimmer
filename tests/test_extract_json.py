@@ -102,13 +102,24 @@ def test_no_json():
 
 
 def test_invalid_json():
-    """Test that invalid JSON returns None."""
-    prompt = '{"broken": "json", missing_quote}'
+    """Test that completely non-JSON text returns None."""
+    prompt = "This has no JSON structure at all, just plain text."
 
     obj, method = extract_json_from_prompt(prompt)
 
     assert method == "none"
     assert obj is None
+
+
+def test_broken_json_gets_repaired():
+    """Test that broken JSON gets repaired by json_repair."""
+    prompt = '{"broken": "json", missing_quote}'
+
+    obj, method = extract_json_from_prompt(prompt)
+
+    # json_repair can fix this, so we get "repaired"
+    assert method == "repaired"
+    assert obj == {"broken": "json"}
 
 
 def test_priority_wrapper_over_fenced():
@@ -155,6 +166,7 @@ if __name__ == "__main__":
         test_raw_json_with_whitespace,
         test_no_json,
         test_invalid_json,
+        test_broken_json_gets_repaired,
         test_priority_wrapper_over_fenced,
         test_priority_fenced_over_raw,
     ]

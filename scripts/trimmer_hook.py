@@ -56,18 +56,31 @@ MARKER_MODE_ANALYSIS = "#trimmer:mode=analysis"
 MARKER_MODE_SUMMARY = "#trimmer:mode=summary"
 MARKER_MODE_FORENSICS = "#trimmer:mode=forensics"
 
-# Forensic question patterns (fail-safe heuristic)
+# Forensic tripwire patterns (conservative fail-safe heuristic)
+# NOTE:
+# This is a conservative tripwire for obvious forensic-style queries.
+# It is NOT a full intent detection system.
+# False negatives are acceptable. Silent sampling is not.
 FORENSIC_PATTERNS = [
-    r"request\s+id[=:]\s*\S+",           # "request id=abc123"
-    r"user\s+id[=:]\s*\S+",              # "user id=xyz"
-    r"order\s+id[=:]\s*\S+",             # "order id=123"
-    r"transaction\s+id[=:]\s*\S+",       # "transaction id=TX-123"
-    r"id[=:]\s*['\"]?\w{6,}['\"]?",      # "id=abc123" or "id: 'xyz789'"
-    r"why\s+did\s+.+\s+fail",            # "why did X fail"
-    r"what\s+happened\s+to\s+\S+",       # "what happened to request X"
-    r"find\s+.+\s+with\s+id",            # "find record with id X"
-    r"show\s+me\s+.+\s+for\s+id",        # "show me details for id X"
-    r"specific\s+\w+\s+id",              # "specific request id"
+    # Explicit ID lookups
+    r"request\s+id[=:]\s*\S+",                     # "request id=abc123"
+    r"user\s+id[=:]\s*\S+",                        # "user id=xyz"
+    r"order\s+id[=:]\s*\S+",                       # "order id=123"
+    r"transaction\s+id[=:]\s*\S+",                 # "transaction id=TX-123"
+    r"\b(id|request_id|user_id|order_id)\b\s*[=:]\s*['\"]?\w{6,}['\"]?",  # "id=abc123"
+    # Entity + identifier patterns
+    r"\b(order|transaction|request)\s+[\w-]{4,}",  # "order ABC123", "transaction TX-999"
+    # Failure investigation
+    r"why\s+did\s+.+\s+fail",                      # "why did X fail"
+    r"\b(what|why)\s+(went\s+wrong|failed|broke)\b",  # "what went wrong", "why failed"
+    r"what\s+happened\s+to\s+\S+",                 # "what happened to request X"
+    # Specific record references
+    r"\b(this|that)\s+(request|order|transaction|record)\b",  # "this request", "that order"
+    r"find\s+.+\s+with\s+id",                      # "find record with id X"
+    r"show\s+me\s+.+\s+for\s+id",                  # "show me details for id X"
+    r"specific\s+\w+\s+id",                        # "specific request id"
+    # UUID pattern (almost always forensic)
+    r"\b[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}\b",  # UUID
 ]
 
 
@@ -87,23 +100,22 @@ def detect_semantic_mode(prompt: str) -> TrimMode:
     return TrimMode.ANALYSIS  # Default
 
 
-def detect_forensic_question(prompt: str) -> tuple[bool, str]:
+def detect_forensic_tripwire(prompt: str) -> tuple[bool, list[str]]:
     """
-    Detect if prompt contains a forensic question (asks about specific record).
+    Detect if prompt contains forensic-style queries (asks about specific records).
 
-    This is a fail-safe heuristic:
-    - It NEVER changes the mode
-    - It ONLY triggers blocking if forensic question detected without explicit mode
-    - Only explicit marker can unlock
+    This is a conservative tripwire, NOT a full intent detection system.
+    False negatives are acceptable - silent sampling is not.
 
     Returns:
-        Tuple of (is_forensic, matched_pattern)
+        Tuple of (is_forensic, list_of_matched_patterns)
     """
+    hits = []
     for pattern in FORENSIC_PATTERNS:
         match = re.search(pattern, prompt, re.IGNORECASE)
         if match:
-            return True, match.group(0)
-    return False, ""
+            hits.append(match.group(0))
+    return bool(hits), hits
 
 
 def debug_log(msg: str) -> None:
@@ -487,21 +499,22 @@ def run_hook(hook_input: dict[str, Any]) -> None:
     semantic_mode = detect_semantic_mode(prompt)
     debug_log(f"Semantic mode: {semantic_mode.value}")
 
-    # Check for forensic question heuristic (fail-safe)
-    is_forensic, forensic_match = detect_forensic_question(prompt)
+    # Check for forensic tripwire (fail-safe heuristic)
+    is_forensic, forensic_hits = detect_forensic_tripwire(prompt)
 
     if is_forensic and semantic_mode == TrimMode.ANALYSIS:
-        # Forensic question detected but no explicit mode set
+        # Forensic signals detected but no explicit mode set
         # FAIL-SAFE: Block unless explicitly allowed
         has_explicit_allow = (
             MARKER_MODE_ANALYSIS in prompt or
             MARKER_FORCE in prompt
         )
         if not has_explicit_allow:
+            hits_display = "\n".join(f"  - \"{hit}\"" for hit in forensic_hits)
             block(
-                f"FORENSIC QUESTION DETECTED\n"
-                f"Pattern matched: '{forensic_match}'\n\n"
-                f"This question appears to ask about a specific record/ID.\n"
+                f"FORENSIC SIGNALS DETECTED\n"
+                f"Detected patterns:\n{hits_display}\n\n"
+                f"This question appears to ask about specific records.\n"
                 f"Sampling may hide the answer you're looking for.\n\n"
                 f"Options:\n"
                 f"  - Add #trimmer:mode=forensics (block if payload too large)\n"
