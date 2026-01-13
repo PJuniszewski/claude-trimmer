@@ -595,9 +595,25 @@ def run_hook(hook_input: dict[str, Any]) -> None:
     # Count tokens
     tokens = count_tokens_safe(prompt, config["model"])
     if tokens < 0:
-        # Token counting failed - fail open
-        print("[trimmer] Token count failed, allowing prompt", file=sys.stderr)
-        allow()
+        # Token counting failed - use character-based estimate as fallback
+        # Rough estimate: ~4 chars per token for English text
+        estimated_tokens = len(prompt) // 4
+        print(f"[trimmer] Token count API failed, using estimate: ~{estimated_tokens} tokens", file=sys.stderr)
+
+        # If estimated tokens significantly exceed limit, block rather than fail open
+        # Use 2x multiplier to be conservative (don't block unnecessarily)
+        if estimated_tokens > config["prompt_limit"] * 2:
+            block(
+                f"TOKEN COUNT FAILED - BLOCKING LARGE PROMPT\n"
+                f"Estimated: ~{estimated_tokens} tokens (limit: {config['prompt_limit']})\n"
+                f"Token counting API unavailable, but prompt appears too large.\n\n"
+                f"Options:\n"
+                f"  - Reduce payload size\n"
+                f"  - Add #trimmer:force to bypass\n"
+                f"  - Set ANTHROPIC_API_KEY for accurate counting"
+            )
+        # Otherwise fail open for smaller prompts
+        tokens = estimated_tokens
 
     # Check force bypass
     if force_mode:
@@ -832,6 +848,7 @@ def run_hook(hook_input: dict[str, Any]) -> None:
 
 def main() -> None:
     """Entry point for hook."""
+    print("[Context-Guard] Hook active", file=sys.stderr)
     debug_log("Hook started")
 
     # Support --trim-file mode for direct trimming

@@ -14,6 +14,16 @@ API_VERSION = "2023-06-01"
 DEFAULT_TIMEOUT = 15
 
 
+def _log(msg: str) -> None:
+    """Write debug log to file for diagnostics."""
+    try:
+        from datetime import datetime
+        with open("/tmp/token_count_debug.log", "a") as f:
+            f.write(f"{datetime.now().isoformat()} - {msg}\n")
+    except:
+        pass
+
+
 def count_tokens(
     content: str,
     model: str,
@@ -36,8 +46,15 @@ def count_tokens(
         ValueError: If API key is missing.
         RuntimeError: If API request fails.
     """
+    _log(f"count_tokens called: content_len={len(content)}, model={model}, timeout={timeout}")
+
     key = api_key or os.environ.get("ANTHROPIC_API_KEY")
+    key_source = "param" if api_key else ("env" if key else "none")
+    key_preview = f"{key[:8]}...{key[-4:]}" if key and len(key) > 12 else "N/A"
+    _log(f"API key: source={key_source}, preview={key_preview}")
+
     if not key:
+        _log("ERROR: ANTHROPIC_API_KEY not set")
         raise ValueError("ANTHROPIC_API_KEY not set")
 
     payload = {
@@ -52,18 +69,31 @@ def count_tokens(
     }
 
     data = json.dumps(payload).encode("utf-8")
+    _log(f"Request payload size: {len(data)} bytes")
     req = urllib.request.Request(API_URL, data=data, headers=headers, method="POST")
 
     try:
+        _log(f"Sending request to {API_URL} with timeout={timeout}s...")
+        import time
+        start = time.time()
         with urllib.request.urlopen(req, timeout=timeout) as resp:
+            elapsed = time.time() - start
             result = json.loads(resp.read().decode("utf-8"))
-            return result.get("input_tokens", 0)
+            tokens = result.get("input_tokens", 0)
+            _log(f"SUCCESS: {tokens} tokens (took {elapsed:.2f}s)")
+            return tokens
     except urllib.error.HTTPError as e:
         body = e.read().decode("utf-8", errors="replace")
+        _log(f"HTTP ERROR {e.code}: {body[:500]}")
         raise RuntimeError(f"API error {e.code}: {body}") from e
     except urllib.error.URLError as e:
+        _log(f"URL ERROR: {e.reason}")
         raise RuntimeError(f"Network error: {e.reason}") from e
+    except TimeoutError as e:
+        _log(f"TIMEOUT after {timeout}s")
+        raise RuntimeError(f"Request timeout after {timeout}s") from e
     except Exception as e:
+        _log(f"UNEXPECTED ERROR: {type(e).__name__}: {e}")
         raise RuntimeError(f"Unexpected error: {e}") from e
 
 
