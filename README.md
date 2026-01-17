@@ -20,6 +20,9 @@ Context Guard provides two layers of protection:
 # Analyze a file
 /guard my_data.json
 
+# Analyze inline JSON data
+/guard '[{"id": 1}, {"id": 2}]'
+
 # Force through despite warnings
 /guard my_data.json --force
 
@@ -28,6 +31,9 @@ Context Guard provides two layers of protection:
 
 # Use larger token budget
 /guard data.json --budget-tokens 5000
+
+# Get output as JSON for programmatic use
+/guard data.json --json
 ```
 
 ## Features
@@ -44,11 +50,13 @@ The hook is a fast safety net with NO API calls:
 ### Layer 2: `/guard` Command
 
 Full analysis pipeline with:
+- **Flexible input** - File path, stdin (`-`), or inline JSON data
 - **Lossless reduction** - Minify, columnar transform, remove nulls
 - **Token counting** - API or heuristic fallback
 - **Decision engine** - ALLOW / SAMPLE / BLOCK
 - **Intelligent trimming** - First + last + evenly-spaced sampling
 - **Transparent reporting** - Shows exactly what was modified
+- **JSON output** - Machine-readable output with `--json` flag
 
 ## Installation
 
@@ -144,6 +152,9 @@ The hook runs automatically on every prompt:
 # Basic usage
 /guard data.json
 
+# Inline JSON data (auto-detected)
+/guard '[{"id": 1, "name": "test"}]'
+
 # With options
 /guard data.json --mode forensics           # Strict mode
 /guard data.json --allow-sampling           # Permit sampling for forensic
@@ -151,6 +162,7 @@ The hook runs automatically on every prompt:
 /guard data.json --no-reduce                # Skip lossless reduction
 /guard data.json --budget-tokens 5000       # Custom budget
 /guard data.json --print-only               # Just output report
+/guard data.json --json                     # Output as JSON for scripting
 ```
 
 ### Output Format
