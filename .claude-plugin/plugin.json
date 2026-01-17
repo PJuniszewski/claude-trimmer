@@ -1,6 +1,6 @@
 {
   "name": "context-guard",
-  "version": "1.0.0-alpha",
+  "version": "1.0.0-beta",
   "description": "LLM Epistemic Safety Layer - context integrity enforcement with sampling-aware guardrails",
   "author": {
     "name": "Patryk Juniszewski",
@@ -9,5 +9,7 @@
   "license": "MIT",
   "repository": "https://github.com/PJuniszewski/context-guard",
   "homepage": "https://github.com/PJuniszewski/context-guard#readme",
-  "keywords": ["claude", "tokens", "trimming", "hook", "guard", "epistemic", "safety", "forensics"]
+  "keywords": ["claude", "tokens", "trimming", "hook", "guard", "epistemic", "safety", "forensics"],
+  "commands": "../commands",
+  "hooks": "../hooks/hooks.json"
 }

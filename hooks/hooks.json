@@ -3,7 +3,7 @@
     {
       "event": "UserPromptSubmit",
       "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/trimmer_hook.py",
-      "timeout": 20000
+      "timeout": 5000
     }
   ]
 }
