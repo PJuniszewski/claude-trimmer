@@ -283,15 +283,43 @@ def format_report(result: GuardResult) -> str:
     lines.append(f"Reason: {result.decision.reason}")
     lines.append("")
 
-    # Token analysis
+    # Forensic warning when sampling is applied despite forensic patterns
+    if result.decision.decision == Decision.SAMPLE and result.forensic_patterns:
+        patterns_display = result.forensic_patterns[0] if result.forensic_patterns else ""
+        lines.append("WARNING: FORENSIC PATTERN DETECTED")
+        lines.append(f'  Pattern "{patterns_display}" detected.')
+        lines.append("  Data was sampled. For queries requiring ALL records,")
+        lines.append("  use --mode forensics or reduce data size first.")
+        lines.append("")
+
+    # Token analysis - table format
     lines.append("TOKEN ANALYSIS:")
-    lines.append(f"  Original:     {result.original_tokens:,} tokens")
+    lines.append("  +-------------------+----------+----------+")
+    lines.append("  | Stage             |   Tokens |   Change |")
+    lines.append("  +-------------------+----------+----------+")
+    lines.append(f"  | Original          | {result.original_tokens:>8,} |      --- |")
+
     if result.reduced_tokens != result.original_tokens:
         diff = result.original_tokens - result.reduced_tokens
-        lines.append(f"  After reduce: {result.reduced_tokens:,} tokens (-{diff})")
+        pct = (diff / result.original_tokens) * 100 if result.original_tokens > 0 else 0
+        lines.append(f"  | After reduction   | {result.reduced_tokens:>8,} |   -{pct:>4.1f}% |")
+
     if result.trimmed_tokens is not None and result.trimmed_tokens != result.reduced_tokens:
-        lines.append(f"  After trim:   {result.trimmed_tokens:,} tokens")
-    lines.append(f"  Budget:       {result.decision.budget:,} tokens")
+        total_diff = result.original_tokens - result.trimmed_tokens
+        total_pct = (total_diff / result.original_tokens) * 100 if result.original_tokens > 0 else 0
+        lines.append(f"  | After sampling    | {result.trimmed_tokens:>8,} |   -{total_pct:>4.1f}% |")
+
+    lines.append("  +-------------------+----------+----------+")
+    lines.append(f"  | Budget            | {result.decision.budget:>8,} |          |")
+    lines.append("  +-------------------+----------+----------+")
+
+    # Summary line
+    final_tokens = result.trimmed_tokens if result.trimmed_tokens is not None else result.reduced_tokens
+    if final_tokens <= result.decision.budget:
+        status = "WITHIN BUDGET"
+    else:
+        status = "OVER BUDGET"
+    lines.append(f"  Status: {status}")
     lines.append("")
 
     # Forensic patterns
@@ -409,11 +437,32 @@ Examples:
     if args.input == "-":
         input_text = sys.stdin.read()
     else:
-        input_path = Path(args.input)
-        if not input_path.exists():
-            print(f"Error: File not found: {args.input}", file=sys.stderr)
-            sys.exit(1)
-        input_text = input_path.read_text(encoding="utf-8")
+        # Check if input looks like JSON data or is a file path
+        stripped_input = args.input.strip()
+
+        # Heuristics to detect inline data vs file path:
+        # 1. Starts with [ or { -> JSON data
+        # 2. Contains [ or { -> mixed text with JSON (e.g., "question? [data]")
+        # 3. Very long (>255 chars) -> probably data, not a file path
+        # 4. Otherwise -> try as file path
+
+        is_inline_data = (
+            stripped_input.startswith(("[", "{")) or
+            len(stripped_input) > 255 or
+            ("[" in stripped_input and "]" in stripped_input) or
+            ("{" in stripped_input and "}" in stripped_input)
+        )
+
+        if is_inline_data:
+            # Treat as inline data (JSON or mixed text with JSON)
+            input_text = args.input
+        else:
+            # Treat as file path
+            input_path = Path(args.input)
+            if not input_path.exists():
+                print(f"Error: File not found: {args.input}", file=sys.stderr)
+                sys.exit(1)
+            input_text = input_path.read_text(encoding="utf-8")
 
     # Parse mode
     mode = None

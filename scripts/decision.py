@@ -176,12 +176,12 @@ def make_decision(
             forensic_patterns=forensic_patterns,
         )
 
-    # Case 6: Analysis mode with forensic pattern detected - BLOCK
+    # Case 6: Analysis mode with forensic pattern detected - SAMPLE with warning
     if mode == TrimMode.ANALYSIS and is_forensic:
         patterns_str = ", ".join(f'"{p}"' for p in forensic_patterns[:3])
         return DecisionResult(
-            decision=Decision.BLOCK,
-            reason=f"Forensic patterns detected ({patterns_str}) - sampling would hide data",
+            decision=Decision.SAMPLE,
+            reason=f"Forensic patterns detected ({patterns_str}) - sampling applied with warning",
             tokens=tokens,
             budget=budget,
             mode=mode,
