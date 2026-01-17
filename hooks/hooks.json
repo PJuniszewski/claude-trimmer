@@ -1,9 +1,15 @@
 {
-  "hooks": [
-    {
-      "event": "UserPromptSubmit",
-      "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/trimmer_hook.py",
-      "timeout": 5000
-    }
-  ]
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/trimmer_hook.py",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
 }
