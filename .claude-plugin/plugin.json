@@ -10,6 +10,6 @@
   "repository": "https://github.com/PJuniszewski/context-guard",
   "homepage": "https://github.com/PJuniszewski/context-guard#readme",
   "keywords": ["claude", "tokens", "trimming", "hook", "guard", "epistemic", "safety", "forensics"],
-  "commands": "../commands",
-  "hooks": "../hooks/hooks.json"
+  "commands": "commands",
+  "hooks": "hooks/hooks.json"
 }
