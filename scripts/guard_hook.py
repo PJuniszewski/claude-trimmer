@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """
-Lightweight Trimmer Hook for Claude Code.
+Context Guard Hook for Claude Code.
 
-This is a fast, warn-only safety net that:
+This is a fast, lightweight safety net that:
 - Detects large payloads and warns the user
 - Detects forensic patterns and suggests /guard
 - Blocks context flooding attacks (massive payloads)
+- Blocks large inline data for /guard command (suggests file instead)
 - Has NO API calls, NO heavy computation
 
 For full analysis and trimming, use the /guard command.
@@ -33,14 +34,18 @@ DEFAULT_HARD_LIMIT_CHARS = 100000
 DEFAULT_MODE = "warn"  # off or warn
 DEFAULT_FAIL_CLOSED = False
 
+# Inline data limits for /guard command
+GUARD_INLINE_WARN_CHARS = 20000  # Warn above 20KB inline data
+GUARD_INLINE_BLOCK_CHARS = 50000  # Block above 50KB inline data
+
 # Escape hatch markers
-MARKER_OFF = "#trimmer:off"
-MARKER_FORCE = "#trimmer:force"
+MARKER_OFF = "#guard:off"
+MARKER_FORCE = "#guard:force"
 
 # Semantic mode markers
-MARKER_MODE_ANALYSIS = "#trimmer:mode=analysis"
-MARKER_MODE_SUMMARY = "#trimmer:mode=summary"
-MARKER_MODE_FORENSICS = "#trimmer:mode=forensics"
+MARKER_MODE_ANALYSIS = "#guard:mode=analysis"
+MARKER_MODE_SUMMARY = "#guard:mode=summary"
+MARKER_MODE_FORENSICS = "#guard:mode=forensics"
 
 # Forensic tripwire patterns (same as full version for consistency)
 FORENSIC_PATTERNS = [
@@ -105,6 +110,45 @@ def detect_forensic_tripwire(prompt: str) -> tuple[bool, list[str]]:
     return bool(hits), hits
 
 
+def detect_guard_inline_data(prompt: str) -> tuple[bool, int]:
+    """
+    Detect if prompt is /guard command with large inline JSON data.
+
+    Returns (is_guard_inline, inline_data_size).
+    """
+    # Check for /guard command pattern
+    guard_patterns = [
+        r"^/guard\s+",
+        r"^/context-guard:guard\s+",
+        r"/guard\s+\[",
+        r"/guard\s+\{",
+    ]
+
+    is_guard = any(re.search(p, prompt, re.IGNORECASE | re.MULTILINE) for p in guard_patterns)
+    if not is_guard:
+        return False, 0
+
+    # Check if input looks like inline data (not a file path)
+    # Find first [ or { after /guard
+    match = re.search(r"/(?:context-guard:)?guard\s+(.+)", prompt, re.DOTALL | re.IGNORECASE)
+    if not match:
+        return False, 0
+
+    args = match.group(1).strip()
+
+    # If args start with [ or { it's inline data
+    if args.startswith("[") or args.startswith("{"):
+        return True, len(args)
+
+    # If args look like a file path, it's not inline
+    if re.match(r"^[/~.]?\w", args) and not args.startswith("{") and not args.startswith("["):
+        # Likely a file path like "data.json" or "/path/to/file"
+        if len(args) < 500:  # File paths are short
+            return False, 0
+
+    return False, 0
+
+
 def out(obj: dict, exit_code: int = 0) -> None:
     """Write JSON response to stdout and exit."""
     sys.stdout.write(json.dumps(obj, separators=(",", ":")))
@@ -129,7 +173,7 @@ def block(reason: str) -> None:
 
 def warn(reason: str) -> None:
     """Warn but allow the prompt."""
-    print(f"[trimmer] WARNING: {reason}", file=sys.stderr)
+    print(f"[context-guard] WARNING: {reason}", file=sys.stderr)
     out({
         "hookSpecificOutput": {"hookEventName": "UserPromptSubmit"},
         "suppressOutput": True,
@@ -138,8 +182,8 @@ def warn(reason: str) -> None:
 
 def warn_with_hint(msg: str, hint: str = "Use /guard for full analysis") -> None:
     """Warn with a hint to use /guard."""
-    print(f"[trimmer] WARNING: {msg}", file=sys.stderr)
-    print(f"[trimmer] HINT: {hint}", file=sys.stderr)
+    print(f"[context-guard] WARNING: {msg}", file=sys.stderr)
+    print(f"[context-guard] HINT: {hint}", file=sys.stderr)
     out({
         "hookSpecificOutput": {"hookEventName": "UserPromptSubmit"},
         "suppressOutput": True,
@@ -151,7 +195,7 @@ def run_hook(hook_input: dict[str, Any]) -> None:
     Lightweight hook logic.
 
     Decision flow:
-    1. #trimmer:off or #trimmer:force? -> ALLOW
+    1. #guard:off or #guard:force? -> ALLOW
     2. chars < MIN_CHARS? -> ALLOW
     3. chars > HARD_LIMIT? -> BLOCK (context flooding)
     4. No JSON markers? -> ALLOW
@@ -194,6 +238,26 @@ def run_hook(hook_input: dict[str, Any]) -> None:
         MARKER_MODE_FORENSICS in prompt
     )
 
+    # Check for /guard with large inline data
+    is_guard_inline, inline_size = detect_guard_inline_data(prompt)
+    if is_guard_inline:
+        if inline_size > GUARD_INLINE_BLOCK_CHARS:
+            block(
+                f"LARGE INLINE DATA FOR /guard\n"
+                f"Size: ~{inline_size:,} chars (~{estimate_tokens(inline_size):,} tokens)\n"
+                f"Limit: {GUARD_INLINE_BLOCK_CHARS:,} chars for inline data\n\n"
+                f"Passing large data inline causes performance issues.\n\n"
+                f"Use a file instead:\n"
+                f"  1. Save JSON to file: data.json\n"
+                f"  2. Run: /guard data.json\n\n"
+                f"Or add #guard:force to bypass (not recommended)"
+            )
+        elif inline_size > GUARD_INLINE_WARN_CHARS:
+            warn_with_hint(
+                f"Large inline data for /guard (~{inline_size:,} chars)",
+                "Consider saving to file and running: /guard data.json"
+            )
+
     # Character-based checks (fast, no API)
     prompt_chars = len(prompt)
 
@@ -208,7 +272,7 @@ def run_hook(hook_input: dict[str, Any]) -> None:
             f"Action:\n"
             f"  - Use /guard to analyze and trim the payload\n"
             f"  - Or reduce payload size manually\n"
-            f"  - Or add #trimmer:force to bypass"
+            f"  - Or add #guard:force to bypass"
         )
 
     # Small prompts pass through
@@ -239,15 +303,15 @@ def run_hook(hook_input: dict[str, Any]) -> None:
                 f"Sampling this data could hide the answer you're looking for.\n\n"
                 f"Options:\n"
                 f"  - Use /guard to analyze and prepare the payload\n"
-                f"  - Add #trimmer:mode=analysis to allow sampling\n"
-                f"  - Add #trimmer:force to bypass\n"
+                f"  - Add #guard:mode=analysis to allow sampling\n"
+                f"  - Add #guard:force to bypass\n"
                 f"  - Set TOKEN_GUARD_FAIL_CLOSED=false to warn instead"
             )
 
         # Warn mode: warn with strong hint
         warn_with_hint(
             f"Forensic query detected ({hits_display}) with large payload (~{estimated_tokens:,} tokens)",
-            "Use /guard to analyze, or add #trimmer:mode=analysis to allow sampling"
+            "Use /guard to analyze, or add #guard:mode=analysis to allow sampling"
         )
 
     elif is_large:
@@ -264,7 +328,6 @@ def run_hook(hook_input: dict[str, Any]) -> None:
 
 def main() -> None:
     """Entry point for hook."""
-    print("[Context-Guard] Hook active (lightweight)", file=sys.stderr)
     debug_log("Hook started")
 
     try:
@@ -276,7 +339,7 @@ def main() -> None:
         run_hook(hook_input)
     except Exception as e:
         debug_log(f"Exception: {e}")
-        print(f"[trimmer] Error: {e}", file=sys.stderr)
+        print(f"[context-guard] Error: {e}", file=sys.stderr)
         allow()  # Fail open
 
 

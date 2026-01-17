@@ -788,8 +788,74 @@ def extract_json_from_prompt(prompt: str) -> tuple[Optional[Any], str]:
         except json.JSONDecodeError:
             pass
 
-    # Method 4: Use json_repair to extract JSON from mixed text
+    # Method 3.5: Fast extraction - find JSON in text without json_repair
+    # This handles common cases like "find X with id 123 [{...}]" efficiently
+    # by finding the first [ or { and trying to parse from there
+    bracket_pos = -1
+    brace_pos = -1
+    if "[" in stripped:
+        bracket_pos = stripped.find("[")
+    if "{" in stripped:
+        brace_pos = stripped.find("{")
+
+    # Determine which comes first (if any)
+    if bracket_pos >= 0 or brace_pos >= 0:
+        if bracket_pos >= 0 and brace_pos >= 0:
+            json_start = min(bracket_pos, brace_pos)
+        elif bracket_pos >= 0:
+            json_start = bracket_pos
+        else:
+            json_start = brace_pos
+
+        # Try to parse from the JSON start position
+        json_candidate = stripped[json_start:]
+        try:
+            result = json.loads(json_candidate)
+            if result and (isinstance(result, dict) or isinstance(result, list)):
+                return result, "extracted"
+        except json.JSONDecodeError:
+            # JSON might be truncated or have text after it
+            # Try to find matching brackets using a simple counter
+            opening_char = stripped[json_start]
+            closing_char = "]" if opening_char == "[" else "}"
+            depth = 0
+            in_string = False
+            escape_next = False
+
+            for i, char in enumerate(json_candidate):
+                if escape_next:
+                    escape_next = False
+                    continue
+                if char == "\\":
+                    escape_next = True
+                    continue
+                if char == '"' and not escape_next:
+                    in_string = not in_string
+                    continue
+                if in_string:
+                    continue
+                if char == opening_char:
+                    depth += 1
+                elif char == closing_char:
+                    depth -= 1
+                    if depth == 0:
+                        # Found the end of JSON
+                        json_substring = json_candidate[:i + 1]
+                        try:
+                            result = json.loads(json_substring)
+                            if result and (isinstance(result, dict) or isinstance(result, list)):
+                                return result, "extracted"
+                        except json.JSONDecodeError:
+                            break
+                        break
+
+    # Method 4: Use json_repair to extract JSON from mixed text (SLOW - last resort)
     # It handles: text before/after JSON, broken JSON, missing quotes, etc.
+    # WARNING: json_repair can be O(n^2) or worse on large inputs
+    # Only use for small inputs or when other methods fail
+    if len(prompt) > 50000:  # Skip json_repair for very large inputs
+        return None, "none"
+
     try:
         result = repair_json(prompt, return_objects=True)
         # Check if we got something meaningful (not empty string/dict/list from garbage)

@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/trimmer_hook.py",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/guard_hook.py",
             "timeout": 5
           }
         ]
